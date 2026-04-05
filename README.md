@@ -8,17 +8,24 @@ Automated freight quoting agent that replaces a 3–24 hour manual workflow with
 # Install dependencies
 npm install
 
-# Configure API key
+# Run without an API key (no setup needed)
+node src/cli.js --no-ai
+
+# Other scenarios
+node src/cli.js --no-ai --preferred     # preferred customer pricing (5% markup)
+node src/cli.js --no-ai --hazmat        # hazmat cargo
+node src/cli.js --no-ai --refrigerated  # refrigerated, tight timeline
+```
+
+## Using the AI Agent (requires API key)
+
+```bash
+# Get a free API key at console.anthropic.com, then:
 cp .env.example .env
 # edit .env → add your ANTHROPIC_API_KEY
 
-# Run CLI (fastest way to see it work)
+# Run CLI with Claude orchestrating the workflow
 node src/cli.js
-
-# Other scenarios
-node src/cli.js --preferred     # preferred customer pricing (5% markup)
-node src/cli.js --hazmat        # hazmat cargo
-node src/cli.js --refrigerated  # refrigerated, tight timeline
 
 # Or run the HTTP API server
 npm start
