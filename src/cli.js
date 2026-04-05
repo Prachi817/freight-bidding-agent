@@ -7,6 +7,51 @@
 
 import "dotenv/config";
 import { runFreightAgent } from "./agent.js";
+import { executeTool } from "./tools.js";
+
+// ─── No-AI mode: runs the fixed tool pipeline without Claude ──────────────────
+
+async function runWithoutAI(request) {
+  const steps = [];
+
+  function runTool(name, input) {
+    process.stdout.write(`  ▸ ${name}... `);
+    const result = executeTool(name, input);
+    console.log("done");
+    steps.push({ name, input, result });
+    return result;
+  }
+
+  const validation = runTool("validate_shipment", request);
+  if (!validation.valid) {
+    console.error("Validation failed:", validation.errors);
+    process.exit(1);
+  }
+  const shipment = validation.normalized;
+
+  const ratesResult = runTool("fetch_carrier_rates", shipment);
+  const selection   = runTool("select_best_rate", { quotes: ratesResult.quotes, timelineDays: shipment.timelineDays });
+
+  if (selection.error) {
+    console.error("Rate selection failed:", selection.error);
+    process.exit(1);
+  }
+
+  const pricing = runTool("apply_customer_markup", {
+    baseRate:   selection.selected.rate,
+    customerId: shipment.customerId,
+    cargoType:  shipment.cargoType,
+  });
+
+  const quote = runTool("generate_quote", {
+    shipmentDetails: shipment,
+    selectedCarrier: selection.selected,
+    pricing,
+    allQuotes:       ratesResult.quotes,
+  });
+
+  return { quote, steps, iterations: steps.length };
+}
 
 const args = process.argv.slice(2);
 
@@ -75,22 +120,29 @@ async function main() {
   console.log("Request:", JSON.stringify(scenario.request, null, 2));
   console.log("\n── Agent running... ──────────────────────────────────\n");
 
+  const noAI = args.includes("--no-ai");
   const startTime = Date.now();
 
+  if (noAI) {
+    console.log("Mode: No-AI (direct tool pipeline — no API key required)\n");
+  }
+
   try {
-    const result = await runFreightAgent(scenario.request, {
-      onStep: (step) => {
-        if (step.type === "tool_call" && step.status === "running") {
-          process.stdout.write(`  ▸ ${step.toolName}... `);
-        }
-        if (step.type === "tool_call" && step.status === "done") {
-          console.log("done");
-        }
-        if (step.type === "reasoning" && step.text.trim()) {
-          console.log(`\n  Agent: ${step.text.trim()}\n`);
-        }
-      },
-    });
+    const result = noAI
+      ? await runWithoutAI(scenario.request)
+      : await runFreightAgent(scenario.request, {
+          onStep: (step) => {
+            if (step.type === "tool_call" && step.status === "running") {
+              process.stdout.write(`  ▸ ${step.toolName}... `);
+            }
+            if (step.type === "tool_call" && step.status === "done") {
+              console.log("done");
+            }
+            if (step.type === "reasoning" && step.text.trim()) {
+              console.log(`\n  Agent: ${step.text.trim()}\n`);
+            }
+          },
+        });
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
 
